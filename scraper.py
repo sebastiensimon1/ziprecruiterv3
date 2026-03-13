@@ -40,7 +40,7 @@ OXYLABS_HOST = "pr.oxylabs.io"
 OXYLABS_PORT = "7777"
 OXYLABS_USERNAME = "customer-testinguser_Ux6GO-cc-US"
 OXYLABS_PASSWORD = "=Madrid926319301"
-OXYLABS_PROXY = f"http://{OXYLABS_USERNAME}:{OXYLABS_PASSWORD}@{OXYLABS_HOST}:{OXYLABS_PORT}"
+OXYLABS_PROXY = f"http://{OXYLABS_USERNAME}:{OXYLABS_PASSWORD.replace('=', '%3D')}@{OXYLABS_HOST}:{OXYLABS_PORT}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -404,7 +404,10 @@ class Ziprecruiter:
                                 continue
 
                         if not container_selector:
-                            logger.error(f"No job container found on page {page}. Page title: '{self.driver.get_title()}'")
+                            pg_title = self.driver.get_title()
+                            pg_src = self.driver.get_page_source()[:500]
+                            logger.error(f"No job container on page {page}. Title: '{pg_title}'")
+                            logger.error(f"Page source snippet: {pg_src}")
                             raise Exception("Job container not found — possible bot block or page structure change")
 
                         job_cards = self.driver.find_elements(
