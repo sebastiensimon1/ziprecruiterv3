@@ -121,6 +121,7 @@ class Ziprecruiter:
             headless2=self.headless,
             agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             proxy=OXYLABS_PROXY,
+            no_sandbox=True,
         )
 
     def dismiss_popups(self):
@@ -373,11 +374,38 @@ class Ziprecruiter:
                             page=page,
                         )
 
-                        self.driver.uc_open_with_reconnect(url, reconnect_time=2)
+                        self.driver.uc_open_with_reconnect(url, reconnect_time=6)
+                        time.sleep(random.uniform(2, 4))
                         self.dismiss_popups()
 
-                        container_selector = "section[class*='job_results_two_pane']"
-                        self.driver.wait_for_element(container_selector, timeout=15)
+                        # ── Bot-block / CAPTCHA detection ──────────────────
+                        page_title = self.driver.get_title().lower()
+                        page_src   = self.driver.get_page_source().lower()
+                        if any(kw in page_title for kw in ["captcha", "access denied", "robot", "blocked", "just a moment"]):
+                            logger.error(f"Bot-block detected on page {page} — title: '{page_title}'. Stopping.")
+                            self.abort_scraping = True
+                            break
+
+                        # ── Try multiple container selectors (ZR may change their HTML) ─
+                        container_selector = None
+                        for sel in [
+                            "section[class*='job_results_two_pane']",
+                            "[data-testid='job-search-results']",
+                            ".job_results",
+                            "[class*='jobList']",
+                            "[class*='jobs-list']",
+                        ]:
+                            try:
+                                self.driver.wait_for_element(sel, timeout=10)
+                                container_selector = sel
+                                logger.info(f"Container found with selector: {sel}")
+                                break
+                            except Exception:
+                                continue
+
+                        if not container_selector:
+                            logger.error(f"No job container found on page {page}. Page title: '{self.driver.get_title()}'")
+                            raise Exception("Job container not found — possible bot block or page structure change")
 
                         job_cards = self.driver.find_elements(
                             f"{container_selector} > div, {container_selector} [data-testid='job-card']"
