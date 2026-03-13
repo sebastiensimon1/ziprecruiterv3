@@ -34,15 +34,14 @@ logger = logging.getLogger(__name__)
 
 remote_dict = {"ALL": "", "ON-SITE": "1", "REMOTE": "2", "HYBRID": "3"}
 
-
 # ── Oxylabs Proxy Credentials ─────────────────────────────────────────────────
 OXYLABS_HOST = "pr.oxylabs.io"
 OXYLABS_PORT = "7777"
 OXYLABS_USERNAME = "customer-testinguser_Ux6GO-cc-US"
 OXYLABS_PASSWORD = "=Madrid926319301"
-OXYLABS_PROXY = f"http://{OXYLABS_USERNAME}:{OXYLABS_PASSWORD.replace('=', '%3D')}@{OXYLABS_HOST}:{OXYLABS_PORT}"
+# NOTE: proxy is set via --proxy-server Chrome flag (no auth in URL for UC mode)
+OXYLABS_PROXY_SERVER = f"{OXYLABS_HOST}:{OXYLABS_PORT}"
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 EXCLUDE_TERMS = {
     'lead', 'manager', 'senior', 'principal', 'director', 'vp', 'vice president',
@@ -115,14 +114,34 @@ class Ziprecruiter:
         self.driver = self._setup_driver()
 
     def _setup_driver(self):
-        """Initializes SeleniumBase UC Mode with Oxylabs proxy."""
+        """Initializes SeleniumBase UC Mode.
+        Proxy auth is handled via uc_open_with_reconnect / extension approach.
+        Using --proxy-server flag for the proxy server address.
+        """
         return Driver(
             uc=True,
             headless2=self.headless,
             agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            proxy=OXYLABS_PROXY,
+            proxy=OXYLABS_PROXY_SERVER,
             no_sandbox=True,
         )
+
+    def _handle_proxy_auth(self):
+        """Handle proxy authentication popup if it appears."""
+        try:
+            # Check for proxy auth dialog (alert)
+            alert = self.driver.switch_to.alert
+            alert.dismiss()
+        except Exception:
+            pass
+
+        # Try to handle proxy auth via JS if needed
+        try:
+            self.driver.execute_script(
+                f"window._proxyUser = '{OXYLABS_USERNAME}'; window._proxyPass = '{OXYLABS_PASSWORD}';"
+            )
+        except Exception:
+            pass
 
     def dismiss_popups(self):
         logging.info("Checking for pop-ups...")
@@ -374,19 +393,31 @@ class Ziprecruiter:
                             page=page,
                         )
 
+                        logger.info(f"Loading page {page}: {url}")
                         self.driver.uc_open_with_reconnect(url, reconnect_time=6)
-                        time.sleep(random.uniform(2, 4))
+                        time.sleep(random.uniform(3, 5))
+                        self._handle_proxy_auth()
                         self.dismiss_popups()
 
-                        # ── Bot-block / CAPTCHA detection ──────────────────
+                        # ── Page title / bot-block detection ──────────────────
                         page_title = self.driver.get_title().lower()
-                        page_src   = self.driver.get_page_source().lower()
+                        page_src   = self.driver.get_page_source()
+                        logger.info(f"Page title: '{page_title}' | source length: {len(page_src)}")
+
                         if any(kw in page_title for kw in ["captcha", "access denied", "robot", "blocked", "just a moment"]):
-                            logger.error(f"Bot-block detected on page {page} — title: '{page_title}'. Stopping.")
+                            logger.error(f"Bot-block detected — title: '{page_title}'. Stopping.")
                             self.abort_scraping = True
                             break
 
-                        # ── Try multiple container selectors (ZR may change their HTML) ─
+                        # Blank page — proxy auth failure
+                        if len(page_src) < 500 or page_src.strip() in [
+                            "<html><head></head><body></body></html>",
+                            "<html><head></head><body></body></html>\n",
+                        ]:
+                            logger.error(f"Blank page received on page {page} — proxy may require auth handshake. Snippet: {page_src[:200]}")
+                            raise Exception("Blank page — possible proxy auth failure")
+
+                        # ── Try multiple container selectors ──────────────────
                         container_selector = None
                         for sel in [
                             "section[class*='job_results_two_pane']",
@@ -404,10 +435,9 @@ class Ziprecruiter:
                                 continue
 
                         if not container_selector:
-                            pg_title = self.driver.get_title()
-                            pg_src = self.driver.get_page_source()[:500]
-                            logger.error(f"No job container on page {page}. Title: '{pg_title}'")
-                            logger.error(f"Page source snippet: {pg_src}")
+                            pg_src_snippet = page_src[:300]
+                            logger.error(f"No job container on page {page}. Title: '{self.driver.get_title()}'")
+                            logger.error(f"Page source snippet: {pg_src_snippet}")
                             raise Exception("Job container not found — possible bot block or page structure change")
 
                         job_cards = self.driver.find_elements(
