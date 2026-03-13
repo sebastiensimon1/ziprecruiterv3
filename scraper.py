@@ -34,6 +34,16 @@ logger = logging.getLogger(__name__)
 
 remote_dict = {"ALL": "", "ON-SITE": "1", "REMOTE": "2", "HYBRID": "3"}
 
+
+# ── Oxylabs Proxy Credentials ─────────────────────────────────────────────────
+OXYLABS_HOST = "pr.oxylabs.io"
+OXYLABS_PORT = "7777"
+OXYLABS_USERNAME = "customer-testinguser_Ux6GO-cc-US"
+OXYLABS_PASSWORD = "=Madrid926319301"
+OXYLABS_PROXY = f"http://{OXYLABS_USERNAME}:{OXYLABS_PASSWORD}@{OXYLABS_HOST}:{OXYLABS_PORT}"
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 EXCLUDE_TERMS = {
     'lead', 'manager', 'senior', 'principal', 'director', 'vp', 'vice president',
     'sr ', 'ciso', 'chief', 'level 2', 'tier 3', 'associate director', 'l3',
@@ -105,11 +115,12 @@ class Ziprecruiter:
         self.driver = self._setup_driver()
 
     def _setup_driver(self):
-        """Initializes SeleniumBase UC Mode."""
+        """Initializes SeleniumBase UC Mode with Oxylabs proxy."""
         return Driver(
             uc=True,
             headless2=self.headless,
             agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            proxy=OXYLABS_PROXY,
         )
 
     def dismiss_popups(self):
